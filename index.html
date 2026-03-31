@@ -792,49 +792,67 @@ window.toggleEye = function(id,btn){
   if(inp.type==='password'){inp.type='text';btn.textContent='🙈';}else{inp.type='password';btn.textContent='👁';}
 };
 
+// ─────────────────────────────────────────────────────────
+// AUTH — CLEAN SINGLE-FLOW VERSION
+// No dual listeners. doLogin() awaits signInAnonymously directly.
+// Page-reload restore uses ONE onAuthStateChanged at the bottom.
+// ─────────────────────────────────────────────────────────
+
 window.doLogin = async function() {
   const pw  = document.getElementById('loginPw').value;
   const err = document.getElementById('loginErr');
-  const expected = loginMode==='admin' ? PW_ADMIN : PW_MEMBER;
+  const expected = loginMode === 'admin' ? PW_ADMIN : PW_MEMBER;
 
   if (pw !== expected) {
     err.textContent = 'Incorrect password. Try again.';
     const inp = document.getElementById('loginPw');
-    inp.classList.remove('shake'); void inp.offsetWidth; inp.classList.add('shake'); inp.value='';
-    setTimeout(()=>{ err.textContent='\u00a0'; }, 3000);
+    inp.classList.remove('shake'); void inp.offsetWidth; inp.classList.add('shake'); inp.value = '';
+    setTimeout(() => { err.textContent = '\u00a0'; }, 3000);
     return;
   }
 
   role = loginMode; isAdmin = role === 'admin';
 
-  // Disable button while signing into Firebase
   const loginBtn = document.getElementById('loginBtn');
-  loginBtn.disabled = true; loginBtn.textContent = 'Signing in…';
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Signing in…';
+  err.textContent = '\u00a0';
 
   try {
+    // Directly await the anonymous sign-in — no listener needed
     await signInAnonymously(auth);
-    // onAuthStateChanged below will call proceedAfterAuth()
+    // If we get here, Firebase auth succeeded. Now proceed.
+    await afterPasswordOk();
   } catch(e) {
-    err.textContent = 'Could not reach Firebase. Check internet.';
+    console.error('signInAnonymously error:', e.code, e.message);
+    let msg = 'Could not sign in. Check your internet connection.';
+    if (e.code === 'auth/operation-not-allowed') {
+      msg = 'Anonymous Auth is not enabled in Firebase. Go to Firebase Console → Authentication → Sign-in providers → Anonymous → Enable.';
+    }
+    err.style.height = 'auto';
+    err.style.whiteSpace = 'normal';
+    err.style.marginBottom = '10px';
+    err.textContent = msg;
     loginBtn.disabled = false;
-    setLoginRole(loginMode);
+    loginBtn.className = 'btn-login ' + (loginMode === 'admin' ? 'admin-mode' : 'member-mode');
+    loginBtn.textContent = loginMode === 'admin' ? 'Enter as Admin →' : 'Enter as Family Member →';
   }
 };
 
-// Called once Firebase confirms anonymous sign-in
-async function proceedAfterAuth() {
+// Called after password check passes AND Firebase anonymous sign-in succeeds
+async function afterPasswordOk() {
   const savedName = localStorage.getItem(NAME_KEY);
   if (savedName) {
     currentUser = savedName;
     await startApp();
   } else {
     showScreen('onboardScreen');
-    document.getElementById('obBtn').className = 'ob-btn '+(isAdmin?'admin':'member');
+    document.getElementById('obBtn').className = 'ob-btn ' + (isAdmin ? 'admin' : 'member');
     document.getElementById('obTitle').textContent = isAdmin ? 'Hello, Admin! 👑' : 'Welcome! 👋';
     document.getElementById('obSub').innerHTML = isAdmin
       ? 'You have full access to <strong>Magizh Illam</strong>.<br>What should we call you?'
       : 'You\'re joining <strong>Magizh Illam</strong>.<br>What should we call you?';
-    setTimeout(()=>document.getElementById('obNameInput').focus(), 300);
+    setTimeout(() => document.getElementById('obNameInput').focus(), 300);
   }
 }
 
@@ -846,11 +864,11 @@ window.finishOnboard = async function() {
 };
 
 async function startApp() {
-  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({role, userName:currentUser})); } catch(e) {}
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role, userName: currentUser })); } catch(e) {}
 
   document.body.classList.toggle('is-admin', isAdmin);
   document.getElementById('rolePip').textContent = isAdmin ? '👑 Admin' : '👥 Member';
-  document.getElementById('rolePip').className   = 'role-pip '+(isAdmin?'admin':'member');
+  document.getElementById('rolePip').className   = 'role-pip ' + (isAdmin ? 'admin' : 'member');
   document.getElementById('userChip').textContent = currentUser;
   document.getElementById('userNameInput').value  = currentUser;
   document.getElementById('fDate').value = today();
@@ -860,35 +878,33 @@ async function startApp() {
   document.body.classList.add('app-on');
   document.getElementById('loaderTxt').textContent = 'Loading data…';
 
-  // Load initial snapshot
-  setSyncBar('busy','⟳ Loading…');
+  setSyncBar('busy', '⟳ Loading…');
   try {
     const snap = await get(dataRef);
     if (snap.exists()) {
       applySnapshot(snap.val());
     } else {
-      // First-ever run — write defaults
-      guestCols = DEFAULT_COLS.map(c=>({...c}));
-      guests    = DEFAULT_GUESTS.map(g=>({...g}));
+      // First-ever run — seed defaults and save to Firebase
+      guestCols = DEFAULT_COLS.map(c => ({ ...c }));
+      guests    = DEFAULT_GUESTS.map(g => ({ ...g }));
       await saveData();
     }
   } catch(e) {
-    setSyncBar('err','⚠ Could not load — check connection');
+    console.error('Initial load error:', e);
+    setSyncBar('err', '⚠ Could not load data — check connection');
   }
 
   ensureTodosForCategories();
   document.getElementById('loaderOv').style.display = 'none';
   refresh();
-
-  // Subscribe for real-time updates from other users
-  subscribeDB();
+  subscribeDB(); // real-time updates for other users
 }
 
 window.doLogout = async function() {
   if (dbUnsubscribe) { dbUnsubscribe(); dbUnsubscribe = null; }
   try { await signOut(auth); } catch(e) {}
   role = null; isAdmin = false; currentUser = '';
-  document.body.classList.remove('is-admin','app-on');
+  document.body.classList.remove('is-admin', 'app-on');
   document.getElementById('appShell').classList.remove('on');
   try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
   document.getElementById('loginPw').value = '';
@@ -896,11 +912,13 @@ window.doLogout = async function() {
   showScreen('loginScreen');
 };
 
-// ── Auto-restore session on page reload ─────────────────
-// If user was already signed into Firebase anonymously AND has a session cookie, skip login screen
+// ── SINGLE onAuthStateChanged — only for page-reload session restore ──
+// This fires once on load. If Firebase already has an anonymous user
+// AND we have a valid sessionStorage entry, restore directly without login.
+// Otherwise show login screen.
 onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    // Firebase says we're already signed in anonymously
+  if (user && !role) {
+    // Firebase has an existing anonymous session from a previous tab/reload
     try {
       const sess = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
       if (sess?.userName && sess?.role) {
@@ -909,52 +927,13 @@ onAuthStateChanged(auth, async (user) => {
         return;
       }
     } catch(e) {}
-    // Firebase auth exists but no session — sign out so login screen shows
+    // Firebase user exists but no valid app session — sign out and show login
     await signOut(auth);
   }
-  // No Firebase user → show login
-  showScreen('loginScreen');
-  setTimeout(()=>document.getElementById('loginPw').focus(), 300);
-});
-
-// ── Handle Firebase anonymous sign-in completing ─────────
-// We listen here so doLogin() doesn't have to await the full auth flow
-let awaitingProceed = false;
-const origOnAuthStateChanged = auth.onAuthStateChanged;
-auth._pendingLoginCallback = null;
-
-// Simpler: just use the promise from signInAnonymously + a flag
-// We'll trigger proceedAfterAuth from the auth state listener when we know it was intentional
-let intentionalLogin = false;
-const _origDoLogin = window.doLogin;
-window.doLogin = async function() {
-  intentionalLogin = true;
-  await _origDoLogin();
-};
-
-// Override onAuthStateChanged to distinguish intentional vs restored login
-let initialAuthCheck = true;
-onAuthStateChanged(auth, async (user) => {
-  if (initialAuthCheck) {
-    initialAuthCheck = false;
-    if (user) {
-      // Restored anonymous session — check if we have a valid app session
-      try {
-        const sess = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
-        if (sess?.userName && sess?.role) {
-          role = sess.role; isAdmin = role === 'admin'; currentUser = sess.userName;
-          await startApp(); return;
-        }
-      } catch(e) {}
-      await signOut(auth);
-    }
-    // No user on first check → show login (already handled above, no-op)
-    return;
-  }
-  // Subsequent auth changes (e.g. after doLogin() calls signInAnonymously)
-  if (user && intentionalLogin) {
-    intentionalLogin = false;
-    await proceedAfterAuth();
+  if (!role) {
+    // No active role means we haven't logged in yet — show the login screen
+    showScreen('loginScreen');
+    setTimeout(() => document.getElementById('loginPw').focus(), 300);
   }
 });
 
