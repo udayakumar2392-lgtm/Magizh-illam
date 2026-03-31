@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "magizh-illam": {
+      ".read":  "auth !== null",
+      ".write": "auth !== null"
+    }
+  }
+}
