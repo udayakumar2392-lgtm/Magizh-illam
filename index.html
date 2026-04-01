@@ -895,6 +895,7 @@ async function startApp() {
   }
 
   ensureTodosForCategories();
+  seedGuestInviteTasks();
   document.getElementById('loaderOv').style.display = 'none';
   refresh();
   subscribeDB(); // real-time updates for other users
@@ -1193,9 +1194,9 @@ window.handleGiftBlur=async function(el){
   refreshGuestStats();refreshSummary();refreshRecent();refreshLedger();await saveData();
 };
 window.handleTextBlur=async function(el){if(!isAdmin)return;const g=getGuest(el.dataset.gid);if(!g)return;const nv=el.value.trim();if(nv===String(g[el.dataset.field]||''))return;g[el.dataset.field]=nv;await saveData();};
-window.handleNameBlur=async function(el){if(!isAdmin)return;const g=getGuest(parseInt(el.dataset.gid));if(!g||!el.value.trim()||el.value.trim()===g.name)return;g.name=el.value.trim();await saveData();};
-window.addGuest=async function(){const inp=document.getElementById('newGuestName');const name=inp.value.trim();if(!name){showToast('Enter a guest name');return;}const ng={id:Date.now(),name};guestCols.forEach(col=>{ng[col.id]=col.type==='check'?false:col.type==='invite'?'none':'';});guests.push(ng);inp.value='';refreshGuestStats();refreshGuestTable();await saveData();showToast('👥 Guest added!');};
-window.deleteGuest=async function(id){if(!isAdmin){showToast('Only admin can delete guests');return;}guests.filter(g=>g.id===id).forEach(g=>{guestCols.filter(c=>c.type==='gift').forEach(col=>{entries=entries.filter(e=>e.giftTag!==`gift_${g.id}_${col.id}`);});});guests=guests.filter(g=>g.id!==id);refresh();await saveData();showToast('Guest removed');};
+window.handleNameBlur=async function(el){if(!isAdmin)return;const g=getGuest(parseInt(el.dataset.gid));if(!g||!el.value.trim()||el.value.trim()===g.name)return;g.name=el.value.trim();syncGuestInviteTask(g,'rename');await saveData();};
+window.addGuest=async function(){const inp=document.getElementById('newGuestName');const name=inp.value.trim();if(!name){showToast('Enter a guest name');return;}const ng={id:Date.now(),name};guestCols.forEach(col=>{ng[col.id]=col.type==='check'?false:col.type==='invite'?'none':'';});guests.push(ng);inp.value='';syncGuestInviteTask(ng,'add');refreshGuestStats();refreshGuestTable();await saveData();showToast('👥 Guest added!');};
+window.deleteGuest=async function(id){if(!isAdmin){showToast('Only admin can delete guests');return;}guests.filter(g=>g.id===id).forEach(g=>{guestCols.filter(c=>c.type==='gift').forEach(col=>{entries=entries.filter(e=>e.giftTag!==`gift_${g.id}_${col.id}`);});syncGuestInviteTask(g,'remove');});guests=guests.filter(g=>g.id!==id);refresh();await saveData();showToast('Guest removed');};
 window.startRenameCol=function(i){if(!isAdmin)return;renamingCol=i;document.getElementById('renameColInp').value=guestCols[i].label;openSheet('renameColSheet');};
 window.confirmRenameCol=async function(){const v=document.getElementById('renameColInp').value.trim();if(!v||renamingCol===null){closeSheet('renameColSheet');return;}guestCols[renamingCol].label=v;renamingCol=null;refresh();await saveData();closeSheet('renameColSheet');showToast('Column renamed!');};
 window.confirmAddCol=async function(){const n=document.getElementById('newColName').value.trim(),t=document.getElementById('newColType').value;if(!n){showToast('Enter a column name');return;}const id='col_'+Date.now();guestCols.push({id,label:n,type:t});guests.forEach(g=>{g[id]=t==='check'?false:t==='invite'?'none':'';});refresh();await saveData();closeSheet('addColSheet');document.getElementById('newColName').value='';showToast('Column added!');};
@@ -1205,6 +1206,48 @@ window.removeCol=async function(i){if(!isAdmin||guestCols.length<=1){showToast('
 // TODO
 // ═══════════════════════════════════════════════════════
 function ensureTodosForCategories(){while(todos.length<categories.length)todos.push([]);}
+
+// ── GUEST → INVITE TASK SYNC ──
+// Finds or creates the "Invitations" category index.
+function inviteCatIndex() {
+  let ci = categories.findIndex(c => c === 'Invitations');
+  if (ci === -1) {
+    categories.push('Invitations');
+    todos.push([]);
+    ci = categories.length - 1;
+  }
+  ensureTodosForCategories();
+  return ci;
+}
+// Sync a guest to the Invitations todo list.
+// action: 'add' | 'remove' | 'rename'
+// For 'rename', pass oldName as third arg.
+function syncGuestInviteTask(guest, action, oldName) {
+  const ci = inviteCatIndex();
+  if (!todos[ci]) todos[ci] = [];
+  const tasks = todos[ci];
+  if (action === 'add') {
+    // Only add if no task with this guestId already exists
+    if (!tasks.find(t => t.guestId === guest.id)) {
+      tasks.push({ id: Date.now() + Math.random(), name: guest.name, note: '', done: false, remind: '', guestId: guest.id });
+    }
+  } else if (action === 'remove') {
+    todos[ci] = tasks.filter(t => t.guestId !== guest.id);
+  } else if (action === 'rename') {
+    const t = tasks.find(t => t.guestId === guest.id);
+    if (t) t.name = guest.name;
+  }
+}
+// Seed tasks for all existing guests (run once on startApp)
+function seedGuestInviteTasks() {
+  const ci = inviteCatIndex();
+  if (!todos[ci]) todos[ci] = [];
+  guests.forEach(g => {
+    if (!todos[ci].find(t => t.guestId === g.id)) {
+      todos[ci].push({ id: Date.now() + Math.random(), name: g.name, note: '', done: false, remind: '', guestId: g.id });
+    }
+  });
+}
 window.setTodoFilter=function(f,btn){todoFilter=f;document.querySelectorAll('.todo-filter-btn').forEach(b=>b.classList.remove('on'));if(btn)btn.classList.add('on');refreshTodoList();};
 function refreshTodoList(){
   ensureTodosForCategories();
