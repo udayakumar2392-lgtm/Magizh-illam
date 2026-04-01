@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Magizh Illam — மகிழ் இல்லம்</title>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ffffff'/><text x='16' y='23' font-family='Georgia,serif' font-size='22' font-weight='700' fill='%231A7F4B' text-anchor='middle'>M</text></svg>">
 <!-- Config is loaded first so FIREBASE_CONFIG, APP_PASSWORDS, DB_ROOT are available -->
 <script src="firebase-config.js"></script>
 <style>
@@ -143,10 +144,10 @@ body.app-on{padding-bottom:calc(var(--nav-h)+8px)}
 @media(min-width:700px){.bottom-nav{display:none};body.app-on{padding-bottom:0}}
 
 /* ── PAGES ── */
-.page{display:none;padding:16px;animation:fadeUp .22s ease}
+.page{display:none;padding:16px 16px calc(var(--nav-h) + 24px);animation:fadeUp .22s ease}
 .page.active{display:block}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-@media(min-width:700px){.page{max-width:980px;margin:0 auto;padding:22px 30px}}
+@media(min-width:700px){.page{max-width:980px;margin:0 auto;padding:22px 30px 32px}}
 
 /* ── SECTION TITLE ── */
 .sec-title{font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:18px 0 9px}
@@ -236,10 +237,7 @@ textarea{resize:vertical;min-height:50px}
 @media(min-width:580px){.g-stats{grid-template-columns:repeat(4,1fr)}}
 .guest-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh)}
 .guest-scroll{overflow-x:auto}
-/* ensure last guest row isn't hidden behind sticky add-bar on mobile */
-#page-guests .guest-wrap{margin-bottom:0}
-#page-guests{padding-bottom:80px}
-@media(min-width:700px){#page-guests{padding-bottom:22px}}
+/* guest page uses global page padding-bottom */
 .gt{width:100%;border-collapse:collapse;min-width:560px}
 .gt thead{background:var(--panel);border-bottom:2px solid var(--border)}
 .gt th{padding:9px 11px;font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);text-align:left;white-space:nowrap}
