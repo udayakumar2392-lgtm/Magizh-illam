@@ -236,6 +236,10 @@ textarea{resize:vertical;min-height:50px}
 @media(min-width:580px){.g-stats{grid-template-columns:repeat(4,1fr)}}
 .guest-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh)}
 .guest-scroll{overflow-x:auto}
+/* ensure last guest row isn't hidden behind sticky add-bar on mobile */
+#page-guests .guest-wrap{margin-bottom:0}
+#page-guests{padding-bottom:80px}
+@media(min-width:700px){#page-guests{padding-bottom:22px}}
 .gt{width:100%;border-collapse:collapse;min-width:560px}
 .gt thead{background:var(--panel);border-bottom:2px solid var(--border)}
 .gt th{padding:9px 11px;font-size:.61rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);text-align:left;white-space:nowrap}
@@ -757,9 +761,12 @@ function applySnapshot(data) {
 }
 
 // Subscribe to live updates — runs whenever Firebase data changes
+let _offlineTimer = null;
 function subscribeDB() {
   if (dbUnsubscribe) dbUnsubscribe();
   dbUnsubscribe = onValue(dataRef, snap => {
+    // Data arrived — clear any pending offline warning
+    if (_offlineTimer) { clearTimeout(_offlineTimer); _offlineTimer = null; }
     if (snap.exists()) {
       applySnapshot(snap.val());
       ensureTodosForCategories();
@@ -767,7 +774,15 @@ function subscribeDB() {
       refresh();
       setSyncBar('ok','✓ Live · '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}));
     }
-  }, () => setSyncBar('err','⚠ Connection lost — working offline'));
+  }, () => {
+    // Debounce: only show offline after 8s of sustained failure
+    // (avoids false positive during auth token propagation on load)
+    if (_offlineTimer) return;
+    _offlineTimer = setTimeout(() => {
+      setSyncBar('err','⚠ Connection lost — working offline');
+      _offlineTimer = null;
+    }, 8000);
+  });
 }
 
 window.manualSync = async function() {
