@@ -273,9 +273,15 @@ textarea{resize:vertical;min-height:50px}
 .g-note-inp[readonly]{cursor:default}
 .g-del-btn{background:none;border:none;color:var(--faint);cursor:pointer;font-size:.95rem;padding:3px;transition:color .15s}
 .g-del-btn:hover{color:var(--red)}
-.add-guest-bar{display:flex;gap:7px;align-items:center;padding:11px 13px;border-top:1.5px solid var(--border);background:var(--panel)}
-.add-guest-bar input{flex:1;background:var(--card);border:1.5px solid var(--border);border-radius:7px;color:var(--ink);font-family:var(--font);font-size:.84rem;font-weight:500;padding:8px 11px;outline:none}
+.add-guest-bar{
+  display:flex;gap:7px;align-items:center;padding:11px 13px;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  box-shadow:var(--sh);margin-top:10px;
+  position:sticky;bottom:calc(var(--nav-h) + 8px);z-index:10;
+}
+.add-guest-bar input{flex:1;background:var(--panel);border:1.5px solid var(--border);border-radius:7px;color:var(--ink);font-family:var(--font);font-size:.84rem;font-weight:500;padding:8px 11px;outline:none}
 .add-guest-bar input:focus{border-color:var(--accent)}
+@media(min-width:700px){.add-guest-bar{position:static;margin-top:10px}}
 .add-col-btn{background:none;border:1.5px dashed var(--border2);border-radius:7px;color:var(--muted);font-size:.65rem;font-weight:700;font-family:var(--font);padding:5px 9px;cursor:pointer;transition:.18s;white-space:nowrap;text-transform:uppercase}
 .add-col-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--amber-bg)}
 
@@ -539,11 +545,11 @@ body.is-admin .admin-block{display:block}
     <div class="g-stats" id="gStatCards"></div>
     <div class="guest-wrap">
       <div class="guest-scroll"><table class="gt"><thead id="gThead"></thead><tbody id="gTbody"></tbody></table></div>
-      <div class="add-guest-bar">
-        <input type="text" id="newGuestName" placeholder="Add new guest name…" onkeydown="if(event.key==='Enter')addGuest()">
-        <button class="btn btn-amber btn-sm" onclick="addGuest()">+ Guest</button>
-        <button class="add-col-btn admin-only" onclick="openSheet('addColSheet')">+ Column</button>
-      </div>
+    </div>
+    <div class="add-guest-bar">
+      <input type="text" id="newGuestName" placeholder="Add new guest name…" onkeydown="if(event.key==='Enter')addGuest()">
+      <button class="btn btn-amber btn-sm" onclick="addGuest()">+ Guest</button>
+      <button class="add-col-btn admin-only" onclick="openSheet('addColSheet')">+ Column</button>
     </div>
   </div>
 
@@ -757,6 +763,7 @@ function subscribeDB() {
     if (snap.exists()) {
       applySnapshot(snap.val());
       ensureTodosForCategories();
+      seedGuestInviteTasks();
       refresh();
       setSyncBar('ok','✓ Live · '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}));
     }
@@ -767,7 +774,7 @@ window.manualSync = async function() {
   setSyncBtn(true); setSyncBar('busy','⟳ Syncing…');
   try {
     const snap = await get(dataRef);
-    if (snap.exists()) { applySnapshot(snap.val()); ensureTodosForCategories(); refresh(); }
+    if (snap.exists()) { applySnapshot(snap.val()); ensureTodosForCategories(); seedGuestInviteTasks(); refresh(); }
     setSyncBar('ok','✓ Synced · '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}));
   } catch(e) { setSyncBar('err','⚠ Could not reach Firebase'); }
   setSyncBtn(false);
@@ -883,6 +890,8 @@ async function startApp() {
     const snap = await get(dataRef);
     if (snap.exists()) {
       applySnapshot(snap.val());
+      ensureTodosForCategories();
+      seedGuestInviteTasks();
     } else {
       // First-ever run — seed defaults and save to Firebase
       guestCols = DEFAULT_COLS.map(c => ({ ...c }));
@@ -1182,6 +1191,9 @@ window.handleTogClick=async function(el){
   el.closest('.tog').querySelectorAll('button').forEach(btn=>{
     const v=btn.dataset.val;btn.className=v===el.dataset.val?(v==='person'?'act-per':v==='wp'?'act-wp':'act-none'):'';
   });
+  // Update invite note on the matching todo task
+  const col=guestCols.find(c=>c.id===el.dataset.field);
+  if(col&&col.type==='invite') syncGuestInviteTask(g,'note');
   refreshGuestStats();await saveData();
 };
 window.handleGiftBlur=async function(el){
@@ -1222,20 +1234,34 @@ function inviteCatIndex() {
 // Sync a guest to the Invitations todo list.
 // action: 'add' | 'remove' | 'rename'
 // For 'rename', pass oldName as third arg.
-function syncGuestInviteTask(guest, action, oldName) {
+// Get invite method label for a guest (reads all invite-type columns)
+function guestInviteNote(g) {
+  const invCol = guestCols.find(c => c.type === 'invite');
+  if (!invCol) return '';
+  const v = g[invCol.id] || 'none';
+  if (v === 'person') return 'Via In-Person';
+  if (v === 'wp')     return 'Via WhatsApp';
+  return '';
+}
+
+function syncGuestInviteTask(guest, action) {
   const ci = inviteCatIndex();
   if (!todos[ci]) todos[ci] = [];
   const tasks = todos[ci];
   if (action === 'add') {
     // Only add if no task with this guestId already exists
     if (!tasks.find(t => t.guestId === guest.id)) {
-      tasks.push({ id: Date.now() + Math.random(), name: guest.name, note: '', done: false, remind: '', guestId: guest.id });
+      tasks.push({ id: Date.now() + Math.random(), name: guest.name, note: guestInviteNote(guest), done: false, remind: '', guestId: guest.id });
     }
   } else if (action === 'remove') {
     todos[ci] = tasks.filter(t => t.guestId !== guest.id);
   } else if (action === 'rename') {
     const t = tasks.find(t => t.guestId === guest.id);
     if (t) t.name = guest.name;
+  } else if (action === 'note') {
+    // Update invite note without touching done state
+    const t = tasks.find(t => t.guestId === guest.id);
+    if (t) t.note = guestInviteNote(guest);
   }
 }
 // Seed tasks for all existing guests (run once on startApp)
@@ -1243,8 +1269,12 @@ function seedGuestInviteTasks() {
   const ci = inviteCatIndex();
   if (!todos[ci]) todos[ci] = [];
   guests.forEach(g => {
-    if (!todos[ci].find(t => t.guestId === g.id)) {
-      todos[ci].push({ id: Date.now() + Math.random(), name: g.name, note: '', done: false, remind: '', guestId: g.id });
+    const existing = todos[ci].find(t => t.guestId === g.id);
+    if (!existing) {
+      todos[ci].push({ id: Date.now() + Math.random(), name: g.name, note: guestInviteNote(g), done: false, remind: '', guestId: g.id });
+    } else {
+      // Update note in case invite method changed since last session
+      existing.note = guestInviteNote(g);
     }
   });
 }
